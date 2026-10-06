@@ -6,6 +6,7 @@ use nu_ansi_term::Color;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::process::Command;
 
@@ -70,9 +71,38 @@ struct TestToRun {
     test: TestCase,
 }
 
+impl TestResult {
+    fn report(&self, include_ignored: bool) {
+	let colors = Colors::new();
+        let (status, should_print) = match self.outcome {
+            TestOutcome::Passed => {
+                (colors.green("ok"), true)
+            }
+            TestOutcome::Failed(_) => {
+                (colors.red("FAILED"), true)
+            }
+            TestOutcome::Ignored => (colors.gray("ignored"), include_ignored),
+            TestOutcome::Error(_) => {
+                (colors.red("ERROR"), true)
+            }
+        };
+
+        if should_print {
+
+            eprintln!(
+                "test {}::{} ... {} ({:.2?})",
+                self.file.display(),
+                self.name,
+                status,
+                self.duration
+            );
+        };
+    }
+}
+
 pub async fn run(args: TestArgs) -> Result<i32> {
-    let colors = Colors::new();
-    let magma_path = find_magma(&args.magma)?;
+    // TODO: run all tests in serial if "-s" flag
+    let magma_path = Arc::new(find_magma(&args.magma)?);
     let test_files = discover_test_files(&args.paths)?;
 
     if test_files.is_empty() {
@@ -94,6 +124,8 @@ pub async fn run(args: TestArgs) -> Result<i32> {
             });
         }
     }
+    let serial_tests: Vec<TestToRun> = all_tests.clone().into_iter().filter(|x| x.test.serial).collect();
+    let parallel_tests: Vec<TestToRun> = all_tests.clone().into_iter().filter(|x| !x.test.serial).collect();
 
     if all_tests.is_empty() {
         eprintln!("No test procedures found.");
@@ -105,52 +137,44 @@ pub async fn run(args: TestArgs) -> Result<i32> {
 
     eprintln!("running {} tests", total);
 
-    // Run tests in parallel using tokio.
-    let results: Vec<TestResult> = stream::iter(all_tests)
+
+    // Run parallel tests using tokio.
+    let mut results: Vec<TestResult> = stream::iter(parallel_tests)
         .map(|test_to_run| {
-            let magma = magma_path.clone();
-            async move { run_single_test(&magma, test_to_run).await }
-        })
-        .buffer_unordered(num_cpus())
-        .collect()
-        .await;
-
-    // Print results.
-    let mut passed = 0;
-    let mut failed = 0;
-    let mut failed_tests: Vec<&TestResult> = Vec::new();
-
-    for result in &results {
-        let (status, should_print) = match &result.outcome {
-            TestOutcome::Passed => {
-                passed += 1;
-                (colors.green("ok"), true)
-            }
-            TestOutcome::Failed(_) => {
-                failed += 1;
-                failed_tests.push(result);
-                (colors.red("FAILED"), true)
-            }
-            TestOutcome::Ignored => (colors.gray("ignored"), args.include_ignored),
-            TestOutcome::Error(_) => {
-                failed += 1;
-                failed_tests.push(result);
-                (colors.red("ERROR"), true)
-            }
-        };
-
-        if should_print {
-            eprintln!(
-                "test {}::{} ... {} ({:.2?})",
-                result.file.display(),
-                result.name,
-                status,
-                result.duration
-            );
-        }
+	let magma = Arc::clone(&magma_path);    
+	    async move {
+		
+		let res = run_single_test(&magma, test_to_run).await;
+		let _ = res.report(args.include_ignored);
+		res
+	    }})
+	.buffered(num_cpus())
+	.collect()
+	.await;
+			  
+    // Now handle the serial tests
+    for test_to_run in serial_tests {
+	let res = run_single_test(&magma_path, test_to_run).await;
+	let _ = res.report(args.include_ignored);
+	results.push(res);
     }
 
+    // Collect failure details
+    let mut failed_tests: Vec<TestResult> = Vec::new();
+    let (mut passed, mut failed) = (0,0);
+	
+    for res in results {
+	match res.outcome {
+	    TestOutcome::Passed => passed += 1,
+	    TestOutcome::Failed(_) | TestOutcome::Error(_) => {failed += 1; failed_tests.push(res); }
+	    _ => {}
+	}
+    }
+
+
+    // Print results.
     eprintln!();
+
 
     // Print failure details.
     if !failed_tests.is_empty() {
@@ -162,12 +186,14 @@ pub async fn run(args: TestArgs) -> Result<i32> {
                 TestOutcome::Failed(msg) => eprintln!("{}", msg),
                 TestOutcome::Error(msg) => eprintln!("error: {}", msg),
                 _ => {}
-            }
+	    }
+
             eprintln!();
         }
     }
 
     // Summary.
+    let colors = Colors::new();
     let result_str = if failed > 0 {
         colors.red("FAILED")
     } else {
@@ -204,7 +230,7 @@ async fn run_single_test(magma_path: &Path, test_to_run: TestToRun) -> TestResul
     let cmd_str = generate_test_command(&file, &test.name);
 
     let output = match Command::new(magma_path)
-        .arg("-b")
+	.arg("-b")
         .arg("-e")
         .arg(&cmd_str)
         .stdout(Stdio::piped())

@@ -620,7 +620,12 @@
 )
 
 (boolean_operator
- operator: ["or" "xor" "and"] @prepend_space @append_space)
+ operator: ["or" "xor" "and"] @prepend_space @append_space
+)
+
+(reduct_operator
+ operator: ["&+" "&-" "&*" "&and" "&or" "&meet" "&join" "&cat"] @prepend_space @append_space
+ )
 
 ;; ============================================================
 ;; Assignment

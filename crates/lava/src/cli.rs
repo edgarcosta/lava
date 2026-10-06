@@ -28,17 +28,30 @@ pub enum Command {
     /// Parse a file and print the syntax tree (planned for v0.2)
     Parse,
 
+    // TODO: Replace this with a short description, and make the long description appear at --help
+    // TODO: make count exclude ignored tests (write X/Y tests)
+    // TODO: rename --include-ignored to --show-ignored
+    // TODO: include single-thread option
+    // TODO: print test results as they complete
+    // TODO: terminate magma processes gracefully
     #[command(
         alias = "t",
-        about = "Run Magma test procedures.\n\n\
-            Tests are discovered from .m files in the test/ or tests/ directory.\n\
-            Each top-level procedure is treated as a test case. To skip a test,\n\
-            add a `// ignore` comment (case-insensitive) on the line before it:\n\n    \
-                // ignore\n    \
-                procedure test_not_ready_yet()\n        \
-                    // ...\n    \
-                end procedure;\n\n\
-            Tests run in parallel and output is colorized (green=pass, red=fail)."
+        about = "Run Magma test procedures",
+	long_about = "Run Magma test procedures.\n\
+		      Tests are discovered from .m files in the test/ or tests/ directory.\n\
+		      Each top-level procedure is treated as a test case. To skip a test,\n\
+		      add a `// ignore` comment (case-insensitive) on the line before it:\n\n\
+		      // ignore\n\
+		      procedure TestNotReadyYet()\n\
+		      ...\n\
+		      end procedure;\n\n\
+		      Tests are run in parallel by default.\n\n\
+		      To run tests in serial - for example for file manipulations - include \"serial\"\n\
+		      in a preceding comment like so:\n\n\
+		      // serial\n\
+		      procedure IUseAFile()\n\
+		      ...\n\
+		      end procedure;\n"
     )]
     Test(TestArgs),
 }
@@ -103,4 +116,8 @@ pub struct TestArgs {
     /// Show ignored tests in output (hidden by default).
     #[arg(long)]
     pub include_ignored: bool,
+
+    /// Run tests in serial. Default 
+    #[arg(short = 's', long)]
+    pub serial: bool
 }

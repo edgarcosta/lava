@@ -48,7 +48,7 @@ lava format --check file.m
 
 # Highlight to terminal (ANSI colours)
 lava highlight file.m
-
+	
 # Highlight to HTML
 lava highlight --html file.m > out.html
 
@@ -73,16 +73,30 @@ procedure MyTest()
 end procedure;
 ```
 
-Calling `lava test` in the terminal then runs all the tests in parallel, and returns error messages (if any). 
+Calling `lava test` in the terminal then runs all the tests in parallel, and returns error messages (if any). Alternatively, one can pass the directory directly with `--magma /path/to/magma`.
 
-To ignore certain tests, preface them with `// ignore`:
+Options to the test runner are passed via a comment directly above, which is parsed as [toml](https://toml.io/en/) starting with a `[test]` tag. Here is an example:
 
-```
-// ignore
+```magma
+/*
+[test]
+skip = true
+skip_unless = ["foo", "bar"]
+parallel = true
+timeout = 30
+*/
 procedure TestNotReadyYet()
     assert Imaginary(NonTrivialRHZeros()) eq 1/2;
 end procedure;
 ```
+
+Supported tags are:
+
+- `skip`: skip this test when running the test runner. Can either be a boolean, or a list of tags (and skip if these tags are passed via `lava test --tags=foo,bar`)
+- `skip_unless`: skip test unless either of
+- `parallel`: whether to run in parallel or not (default: `true`)
+- `timeout`: if the test runs slower than this (specified in seconds), the `lava` raise a warning.
+  A global timeout can be applied to all tests (regardless of their `toml` value) by passing `lava test --timeout=n`. A value of `0` to timeout is treated as infinity.
 
 ## Workspace layout
 

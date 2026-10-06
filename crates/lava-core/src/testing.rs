@@ -14,6 +14,8 @@ pub struct TestCase {
     pub name: String,
     /// Whether this test is marked as ignored (via `// ignore` comment).
     pub ignored: bool,
+    /// Whether this test should be run in serial (via `// serial` comment).
+    pub serial: bool,
     /// Line number where the procedure is defined (1-indexed).
     pub line: usize,
 }
@@ -22,6 +24,7 @@ pub struct TestCase {
 ///
 /// A test procedure is any top-level `procedure` definition. Procedures
 /// preceded by a `// ignore` comment (case-insensitive) are marked as ignored.
+/// Procedures marked by a `// serial` comment is run in serial, not parallel
 /// Nested procedures (defined inside other procedures) are not discovered.
 pub fn discover_tests(source: &str) -> Result<Vec<TestCase>, DiscoveryError> {
     let mut parser = Parser::new();
@@ -80,11 +83,12 @@ pub fn discover_tests(source: &str) -> Result<Vec<TestCase>, DiscoveryError> {
             let line = proc.start_position().row + 1; // 1-indexed
 
             // Check for `// ignore` comment before this procedure.
-            let ignored = is_ignored(source, proc);
-
+            let ignored = precomment_contains(source, proc, "ignore".into());
+	    let serial = precomment_contains(source, proc, "serial".into());
             tests.push(TestCase {
                 name: proc_name,
                 ignored,
+		serial,
                 line,
             });
         }
@@ -93,8 +97,8 @@ pub fn discover_tests(source: &str) -> Result<Vec<TestCase>, DiscoveryError> {
     Ok(tests)
 }
 
-/// Check if a node is preceded by an `// ignore` comment.
-fn is_ignored(source: &str, node: tree_sitter::Node) -> bool {
+/// Check if a node is preceded by a comment containing `target_str`
+fn precomment_contains(source: &str, node: tree_sitter::Node, target_str: String) -> bool {
     let start_byte = node.start_byte();
     if start_byte == 0 {
         return false;
@@ -111,9 +115,8 @@ fn is_ignored(source: &str, node: tree_sitter::Node) -> bool {
             continue;
         }
         if trimmed.starts_with("//") {
-            let comment_text = trimmed.trim_start_matches('/').trim();
-            if comment_text.eq_ignore_ascii_case("ignore") {
-                return true;
+	    if trimmed.contains(&target_str) {
+		return true;
             }
         }
         // If we hit non-comment content, stop looking.
